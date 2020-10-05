@@ -6,6 +6,21 @@ from mathutils import Vector, Matrix
 import sprytile_utils
 
 
+class UvDataLayers:
+    GRID_INDEX = "grid_index"
+    GRID_TILE_ID = "grid_tile_id"
+    GRID_SEL_WIDTH = "grid_sel_width"
+    GRID_SEL_HEIGHT = "grid_sel_height"
+    GRID_SEL_ORIGIN = "grid_sel_origin"
+    PAINT_SETTINGS = "paint_settings"
+    WORK_LAYER = "work_layer"
+
+    LAYER_NAMES = [GRID_INDEX, GRID_TILE_ID,
+                   GRID_SEL_WIDTH, GRID_SEL_HEIGHT,
+                   GRID_SEL_ORIGIN, PAINT_SETTINGS,
+                   WORK_LAYER]
+
+
 def get_uv_pos_size(data, image_size, target_grid, origin_xy, size_x, size_y,
                     up_vector, right_vector, verts, vtx_center):
     pixel_uv_x = 1.0 / image_size[0]
@@ -33,17 +48,17 @@ def get_uv_pos_size(data, image_size, target_grid, origin_xy, size_x, size_y,
     origin_y = pixel_uv_y * origin_y
     origin_matrix = Matrix.Translation((origin_x, origin_y, 0))
 
-    uv_matrix = offset_matrix * rotate_matrix * origin_matrix
+    uv_matrix = offset_matrix @ rotate_matrix @ origin_matrix
 
     flip_x = -1 if data.uv_flip_x else 1
     flip_y = -1 if data.uv_flip_y else 1
-    flip_matrix = Matrix.Scale(flip_x, 4, right_vector) * Matrix.Scale(flip_y, 4, up_vector)
+    flip_matrix = Matrix.Scale(flip_x, 4, right_vector) @ Matrix.Scale(flip_y, 4, up_vector)
 
     pad_offset = target_grid.auto_pad_offset
     if target_grid.auto_pad is False:
         pad_offset = 0
     pad_scale = Vector(((size_x - pad_offset) / size_x, (size_y - pad_offset) / size_y))
-    pad_matrix = Matrix.Scale(pad_scale.x, 4, right_vector) * Matrix.Scale(pad_scale.y, 4, up_vector)
+    pad_matrix = Matrix.Scale(pad_scale.x, 4, right_vector) @ Matrix.Scale(pad_scale.y, 4, up_vector)
 
     uv_min = Vector((float('inf'), float('inf')))
     uv_max = Vector((float('-inf'), float('-inf')))
@@ -53,9 +68,9 @@ def get_uv_pos_size(data, image_size, target_grid, origin_xy, size_x, size_y,
         # Around center
         vert_pos = vert - vtx_center
         # Apply flip scaling
-        vert_pos = flip_matrix * vert_pos
+        vert_pos = flip_matrix @ vert_pos
         # Apply padding
-        vert_pos = pad_matrix * vert_pos
+        vert_pos = pad_matrix @ vert_pos
         # Get x/y values by using the right/up vectors
         vert_xy = (right_vector.dot(vert_pos), up_vector.dot(vert_pos), 0)
         vert_xy = Vector(vert_xy)
@@ -68,7 +83,7 @@ def get_uv_pos_size(data, image_size, target_grid, origin_xy, size_x, size_y,
         vert_xy.x *= uv_unit_x
         vert_xy.y *= uv_unit_y
         # Then offset the actual UV space by the translation matrix
-        vert_xy = uv_matrix * vert_xy
+        vert_xy = uv_matrix @ vert_xy
         # Record min/max for tile alignment step
         uv_min.x = min(uv_min.x, vert_xy.x)
         uv_min.y = min(uv_min.y, vert_xy.y)
@@ -83,7 +98,7 @@ def get_uv_pos_size(data, image_size, target_grid, origin_xy, size_x, size_y,
         uv_center = Vector((0.5, 0.5, 0.0))
         uv_center.x *= uv_unit_x
         uv_center.y *= uv_unit_y
-        uv_center = uv_matrix * uv_center
+        uv_center = uv_matrix @ uv_center
         uv_verts = get_uv_paint_modify(data, uv_verts, uv_matrix, pad_scale,
                                        uv_unit_x, uv_unit_y, uv_min, uv_max,
                                        uv_center, Vector((pixel_uv_x, pixel_uv_y)))
@@ -135,14 +150,14 @@ def get_uv_paint_modify(data, uv_verts, uv_matrix, pad_scale, uv_unit_x, uv_unit
 
     # Generate tile bounds with auto padding
     half_uv = Vector((uv_unit_x / 2, uv_unit_y / 2, 0))
-    pad_matrix = Matrix.Scale(pad_scale.x, 4, Vector((1, 0, 0))) * Matrix.Scale(pad_scale.y, 4, Vector((0, 1, 0)))
-    tile_min = pad_matrix * Vector((-half_uv.x, -half_uv.y, 0)) + half_uv
-    tile_max = pad_matrix * Vector((half_uv.x, half_uv.y, 0)) + half_uv
-    tile_min = uv_matrix * tile_min
-    tile_max = uv_matrix * tile_max
+    pad_matrix = Matrix.Scale(pad_scale.x, 4, Vector((1, 0, 0))) @ Matrix.Scale(pad_scale.y, 4, Vector((0, 1, 0)))
+    tile_min = pad_matrix @ Vector((-half_uv.x, -half_uv.y, 0)) + half_uv
+    tile_max = pad_matrix @ Vector((half_uv.x, half_uv.y, 0)) + half_uv
+    tile_min = uv_matrix @ tile_min
+    tile_max = uv_matrix @ tile_max
     # Actual bounds without auto padding
-    tile_bound_min = uv_matrix * Vector((0, 0, 0))
-    tile_bound_max = uv_matrix * Vector((uv_unit_x, uv_unit_y, 0))
+    tile_bound_min = uv_matrix @ Vector((0, 0, 0))
+    tile_bound_max = uv_matrix @ Vector((uv_unit_x, uv_unit_y, 0))
 
     # Calculate tile stretch
     scale_x = 1
@@ -155,14 +170,14 @@ def get_uv_paint_modify(data, uv_verts, uv_matrix, pad_scale, uv_unit_x, uv_unit
     if data.paint_stretch_y and face_size.y > 0:
         scale_y = tile_size.y / face_size.y
 
-    matrix_stretch = Matrix.Scale(scale_x, 2, Vector((1, 0))) * Matrix.Scale(scale_y, 2, Vector((0, 1)))
+    matrix_stretch = Matrix.Scale(scale_x, 2, Vector((1, 0))) @ Matrix.Scale(scale_y, 2, Vector((0, 1)))
 
     threshold = tile_size * data.edge_threshold
     for uv_vert in uv_verts:
         # First, apply the stretch matrix
         uv = Vector((uv_vert.x, uv_vert.y))
         uv -= uv_center.xy
-        uv = matrix_stretch * uv
+        uv = matrix_stretch @ uv
         uv += uv_center.xy
         # Next, check if want to snap to edges
         if data.paint_edge_snap:
@@ -220,8 +235,19 @@ def get_uv_paint_modify(data, uv_verts, uv_matrix, pad_scale, uv_unit_x, uv_unit
     return uv_verts
 
 
-def uv_map_face(context, up_vector, right_vector, tile_xy, origin_xy, face_index, mesh):
-    """UV map the given face"""
+def uv_map_face(context, up_vector, right_vector, tile_xy, origin_xy, face_index, mesh, tile_size=(1, 1)):
+    """
+    UV map the given face
+    :param context:
+    :param up_vector: World up vector
+    :param right_vector: World right vector
+    :param tile_xy: Tile placement XY coordinates
+    :param origin_xy: Origin XY of tile placement
+    :param face_index: Face index to UV map
+    :param mesh:
+    :param tile_size: Tile units being UV mapped
+    :return:
+    """
     if mesh is None:
         return None, None
 
@@ -233,7 +259,6 @@ def uv_map_face(context, up_vector, right_vector, tile_xy, origin_xy, face_index
     target_grid = sprytile_utils.get_grid(context, grid_id)
 
     uv_layer = mesh.loops.layers.uv.verify()
-    mesh.faces.layers.tex.verify()
 
     if face_index >= len(mesh.faces):
         return None, None
@@ -246,15 +271,25 @@ def uv_map_face(context, up_vector, right_vector, tile_xy, origin_xy, face_index
     if face.hide:
         return None, None
 
-    vert_origin = context.object.matrix_world * face.calc_center_bounds()
+    vert_origin = context.object.matrix_world @ face.calc_center_bounds()
     verts = []
     for loop in face.loops:
         vert = loop.vert
-        verts.append(context.object.matrix_world * vert.co)
+        verts.append(context.object.matrix_world @ vert.co)
 
-    uv_verts = get_uv_positions(data, target_img.size, target_grid,
-                                up_vector, right_vector, tile_xy,
-                                verts, vert_origin)
+    tile_start = [tile_xy[0], tile_xy[1]]
+    if tile_size[0] > 1 or tile_size[1] > 1:
+        tile_start[0] -= tile_size[0]
+        tile_start[1] -= tile_size[1]
+
+    size_x = tile_size[0] * target_grid.grid[0]
+    size_y = tile_size[1] * target_grid.grid[1]
+
+    uv_verts = get_uv_pos_size(data, target_img.size,
+                               target_grid, tile_start,
+                               size_x, size_y,
+                               up_vector, right_vector,
+                               verts, vert_origin)
 
     if uv_verts is None:
         return None, None
@@ -274,7 +309,6 @@ def apply_uvs(context, face, uv_verts, target_grid,
 
     if uv_layer is None:
         uv_layer = mesh.loops.layers.uv.verify()
-        mesh.faces.layers.tex.verify()
 
     # Apply the UV positions on the face verts
     idx = 0
@@ -289,12 +323,13 @@ def apply_uvs(context, face, uv_verts, target_grid,
 
     # Save the grid and tile ID to the face
     # If adding more layers, make sure setup in sprytile_modal.update_bmesh_tree
-    grid_layer_id = mesh.faces.layers.int.get('grid_index')
-    grid_layer_tileid = mesh.faces.layers.int.get('grid_tile_id')
-    grid_sel_width = mesh.faces.layers.int.get('grid_sel_width')
-    grid_sel_height = mesh.faces.layers.int.get('grid_sel_height')
-    grid_sel_origin = mesh.faces.layers.int.get('grid_sel_origin')
-    paint_settings_id = mesh.faces.layers.int.get('paint_settings')
+    grid_layer_id = mesh.faces.layers.int.get(UvDataLayers.GRID_INDEX)
+    grid_layer_tileid = mesh.faces.layers.int.get(UvDataLayers.GRID_TILE_ID)
+    grid_sel_width = mesh.faces.layers.int.get(UvDataLayers.GRID_SEL_WIDTH)
+    grid_sel_height = mesh.faces.layers.int.get(UvDataLayers.GRID_SEL_HEIGHT)
+    grid_sel_origin = mesh.faces.layers.int.get(UvDataLayers.GRID_SEL_ORIGIN)
+    paint_settings_id = mesh.faces.layers.int.get(UvDataLayers.PAINT_SETTINGS)
+    work_layer_id = mesh.faces.layers.int.get(UvDataLayers.WORK_LAYER)
 
     face = mesh.faces[face.index]
     row_size = math.ceil(target_img.size[0] / target_grid.grid[0])
@@ -304,6 +339,7 @@ def apply_uvs(context, face, uv_verts, target_grid,
         origin_id = (origin_xy[1] * row_size) + origin_xy[0]
 
     paint_settings = sprytile_utils.get_paint_settings(data)
+    work_layer_data = sprytile_utils.get_work_layer_data(data)
 
     sel_width = target_grid.tile_selection[2]
     sel_height = target_grid.tile_selection[3]
@@ -314,6 +350,7 @@ def apply_uvs(context, face, uv_verts, target_grid,
     face[grid_sel_height] = sel_height
     face[grid_sel_origin] = origin_id
     face[paint_settings_id] = paint_settings
+    face[work_layer_id] = work_layer_data
 
     bmesh.update_edit_mesh(context.object.data)
     mesh.faces.index_update()
@@ -322,11 +359,11 @@ def apply_uvs(context, face, uv_verts, target_grid,
 
 
 def register():
-    bpy.utils.register_module(__name__)
+    pass
 
 
 def unregister():
-    bpy.utils.unregister_module(__name__)
+    pass
 
 
 if __name__ == '__main__':
